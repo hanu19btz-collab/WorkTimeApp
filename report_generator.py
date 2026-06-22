@@ -67,6 +67,15 @@ def _fmt_td(td):
     return f"{sign}{h:02d}:{m:02d}:{s:02d}"
 
 
+def _fmt_hours(decimal_hours):
+    """Convert decimal hours to 'Xh Ym' string (e.g. 2.5 → '2h 30m')."""
+    if decimal_hours <= 0:
+        return "—"
+    total_min = round(decimal_hours * 60)
+    h, m = divmod(total_min, 60)
+    return f"{h}h {m:02d}m"
+
+
 def detect_issues(input_file):
     """Quick parse — returns (issues_list, sorted_employees_list)."""
     df = pd.read_excel(input_file)
@@ -183,7 +192,7 @@ def generate_report(
     weekly.columns = ["Year", "Week", "Week Start", "Employee", "Total Hours"]
     weekly["Total Hours"]    = weekly["Total Hours"].round(2)
     weekly["Regular Hours"]  = weekly["Total Hours"].apply(lambda x: round(min(x, 40), 2))
-    weekly["Overtime Hours"] = weekly["Total Hours"].apply(lambda x: round(max(0.0, x - 40), 2))
+    weekly["Overtime Hours"] = weekly["Total Hours"].apply(lambda x: _fmt_hours(max(0.0, x - 40)))
     weekly["Week Start"]     = weekly["Week Start"].dt.date
     weekly = weekly.sort_values(["Year", "Week", "Employee"]).reset_index(drop=True)
 
@@ -206,7 +215,7 @@ def generate_report(
     )
     monthly["total_hours"]    = monthly["total_hours"].round(2)
     monthly["regular_hours"]  = monthly["total_hours"].apply(lambda x: round(min(x, 160), 2))
-    monthly["overtime_hours"] = monthly["total_hours"].apply(lambda x: round(max(0.0, x - 160), 2))
+    monthly["overtime_hours"] = monthly["total_hours"].apply(lambda x: _fmt_hours(max(0.0, x - 160)))
     monthly = monthly.sort_values(["_year", "_month_num", "Employee"]).reset_index(drop=True)
 
     monthly_export = monthly.rename(columns={
@@ -241,7 +250,8 @@ def _style_sheet(ws, df, overtime_col=None):
         ot_idx = df.columns.get_loc(overtime_col) + 1
         for row_idx in range(2, ws.max_row + 1):
             val = ws.cell(row=row_idx, column=ot_idx).value
-            if val and float(val) > 0:
+            has_ot = val is not None and val != "—" and val != "" and val != 0
+            if has_ot:
                 for ci in range(1, ws.max_column + 1):
                     ws.cell(row=row_idx, column=ci).fill = _OVERTIME_FILL
 

@@ -211,13 +211,13 @@ if st.button("Generate Report", type="primary", use_container_width=True):
     st.dataframe(daily_df, use_container_width=True, hide_index=True)
 
     st.subheader("Weekly Summary")
-    ot_count = (weekly_df["Overtime Hours"] > 0).sum()
+    ot_count = (weekly_df["Overtime Hours"] != "—").sum()
     if ot_count:
         st.warning(f"⚠  {ot_count} employee-week(s) exceed 40 h")
     st.dataframe(weekly_df, use_container_width=True, hide_index=True)
 
     st.subheader("Monthly Summary")
-    mot_count = (monthly_df["Overtime Hours"] > 0).sum()
+    mot_count = (monthly_df["Overtime Hours"] != "—").sum()
     if mot_count:
         st.warning(f"⚠  {mot_count} employee-month(s) exceed 160 h")
     st.dataframe(monthly_df, use_container_width=True, hide_index=True)
