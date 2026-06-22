@@ -191,8 +191,11 @@ def generate_report(
     )
     weekly.columns = ["Year", "Week", "Week Start", "Employee", "Total Hours"]
     weekly["Total Hours"]    = weekly["Total Hours"].round(2)
-    weekly["Regular Hours"]  = weekly["Total Hours"].apply(lambda x: round(min(x, 40), 2))
-    weekly["Overtime Hours"] = weekly["Total Hours"].apply(lambda x: _fmt_hours(max(0.0, x - 40)))
+    weekly["Regular Hours"]  = weekly["Total Hours"].apply(lambda x: min(x, 40))
+    weekly["Overtime Hours"] = weekly["Total Hours"].apply(lambda x: max(0.0, x - 40))
+    weekly["Total Hours"]    = weekly["Total Hours"].apply(_fmt_hours)
+    weekly["Regular Hours"]  = weekly["Regular Hours"].apply(_fmt_hours)
+    weekly["Overtime Hours"] = weekly["Overtime Hours"].apply(_fmt_hours)
     weekly["Week Start"]     = weekly["Week Start"].dt.date
     weekly = weekly.sort_values(["Year", "Week", "Employee"]).reset_index(drop=True)
 
@@ -214,8 +217,11 @@ def generate_report(
         .reset_index()
     )
     monthly["total_hours"]    = monthly["total_hours"].round(2)
-    monthly["regular_hours"]  = monthly["total_hours"].apply(lambda x: round(min(x, 160), 2))
-    monthly["overtime_hours"] = monthly["total_hours"].apply(lambda x: _fmt_hours(max(0.0, x - 160)))
+    monthly["regular_hours"]  = monthly["total_hours"].apply(lambda x: min(x, 160))
+    monthly["overtime_hours"] = monthly["total_hours"].apply(lambda x: max(0.0, x - 160))
+    monthly["total_hours"]    = monthly["total_hours"].apply(_fmt_hours)
+    monthly["regular_hours"]  = monthly["regular_hours"].apply(_fmt_hours)
+    monthly["overtime_hours"] = monthly["overtime_hours"].apply(_fmt_hours)
     monthly = monthly.sort_values(["_year", "_month_num", "Employee"]).reset_index(drop=True)
 
     monthly_export = monthly.rename(columns={
