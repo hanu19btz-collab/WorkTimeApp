@@ -27,6 +27,12 @@ st.caption("Upload → Review issues → Manual adjustments → Generate → Dow
 with st.sidebar:
     st.header("⚙ Shift Settings")
 
+    night_start = st.time_input(
+        "Night Shift Start",
+        value=time(0, 0),
+        help="Night shift (default 00:00–09:00). Check-ins up to 2h before "
+             "the start (e.g. 23:40) count for the next day's night shift.",
+    )
     am_start = st.time_input(
         "AM Shift Start",
         value=time(5, 30),
@@ -37,6 +43,12 @@ with st.sidebar:
         value=time(13, 0),
         help="Fixed start time applied when first check-in is at or after 12:00",
     )
+    grace_minutes = st.number_input(
+        "Late grace period (minutes)",
+        min_value=0, max_value=30, value=0, step=1,
+        help="0 = anyone clocking in 1 minute after shift start is LATE. "
+             "E.g. 5 = up to 5 min late is still counted as on time.",
+    )
     break_hours = st.number_input(
         "Break Duration (hours)",
         min_value=0.0, max_value=4.0,
@@ -46,17 +58,22 @@ with st.sidebar:
 
     st.divider()
     st.markdown(f"""
-**Shift logic**
-- Check-in < 12:00 → AM (start **{am_start.strftime('%H:%M')}**)
-- Check-in ≥ 12:00 → PM (start **{pm_start.strftime('%H:%M')}**)
+**Shift logic** (by first check-in)
+- Night → start **{night_start.strftime('%H:%M')}**
+- AM (before 12:00) → start **{am_start.strftime('%H:%M')}**
+- PM (12:00 or later) → start **{pm_start.strftime('%H:%M')}**
+
+**Lateness**
+- Clock in on time / early → counted from shift start
+- Clock in later than start{f' + {grace_minutes} min' if grace_minutes else ''} → **LATE**, counted from actual clock-in
 
 **Formula**
-`Last Clock Out − Shift Start − {break_hours}h break`
+`Last Clock Out − Counted From − {break_hours}h break`
 
 **Overtime** threshold: 40 h / week
 """)
     st.divider()
-    st.caption("v3.0 — Manual adjustments + issue detection")
+    st.caption("v3.1 — Night shift + late arrivals")
 
 # ── File upload ───────────────────────────────────────────────────────────────
 uploaded_file = st.file_uploader(
@@ -90,15 +107,21 @@ with st.expander("Preview raw data (first 20 rows)"):
 st.divider()
 
 # ── Auto issue detection (once per file) ──────────────────────────────────────
-file_key = uploaded_file.name
+file_key = f"{uploaded_file.name}|{night_start}"
 if st.session_state.get("_file_key") != file_key:
     try:
-        issues, employees = detect_issues(uploaded_file)
+        issues, employees = detect_issues(
+            uploaded_file,
+            night_start_hour=night_start.hour,
+            night_start_min=night_start.minute,
+        )
         uploaded_file.seek(0)
+        if st.session_state.get("_file_name") != uploaded_file.name:
+            st.session_state.manual_entries = []   # new file → clear manual entries
+        st.session_state._file_name     = uploaded_file.name
         st.session_state._file_key      = file_key
         st.session_state._issues        = issues
         st.session_state._employees     = employees
-        st.session_state.manual_entries = []
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
@@ -122,7 +145,8 @@ st.divider()
 
 # ── Manual adjustments ────────────────────────────────────────────────────────
 st.subheader("✏ Manual Adjustments")
-st.caption("Add missing clock-in or clock-out entries. They will be merged with the file data before calculation.")
+st.caption("Add missing clock-in or clock-out entries. They will be merged with the file data before calculation. "
+           "For a night-shift check-in before midnight (e.g. 23:50), pick the actual calendar date of that check-in.")
 
 with st.form("add_manual_entry", clear_on_submit=True):
     c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
@@ -184,6 +208,9 @@ if st.button("Generate Report", type="primary", use_container_width=True):
                 pm_start_min=pm_start.minute,
                 break_hours=break_hours,
                 manual_entries=st.session_state.manual_entries,
+                night_start_hour=night_start.hour,
+                night_start_min=night_start.minute,
+                grace_minutes=int(grace_minutes),
             )
         except ValueError as exc:
             st.error(str(exc))
@@ -196,19 +223,30 @@ if st.button("Generate Report", type="primary", use_container_width=True):
 
     st.success("Report generated successfully!")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Records",     len(daily_df))
-    c2.metric("Employees",   daily_df["Employee"].nunique())
-    c3.metric("Days",        daily_df["Date"].nunique())
-    c4.metric("Total Hours", f"{total_hours:.1f} h")
+    late_count = int((daily_df["Status"] == "LATE").sum())
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Records",       len(daily_df))
+    c2.metric("Employees",     daily_df["Employee"].nunique())
+    c3.metric("Days",          daily_df["Date"].nunique())
+    c4.metric("Total Hours",   f"{total_hours:.1f} h")
+    c5.metric("Late Arrivals", late_count)
 
     if skipped:
         with st.expander(f"⚠ {len(skipped)} record(s) still incomplete — excluded from report"):
             for s in skipped:
                 st.text(s)
 
+    def _highlight_late(row):
+        if row["Status"] == "LATE":
+            return ["background-color: #FFE4B5; color: #9C0006; font-weight: 600"] * len(row)
+        return [""] * len(row)
+
     st.subheader("Daily Report")
-    st.dataframe(daily_df, use_container_width=True, hide_index=True)
+    if late_count:
+        st.warning(f"⚠  {late_count} late arrival(s) — highlighted in orange")
+    st.dataframe(daily_df.style.apply(_highlight_late, axis=1),
+                 use_container_width=True, hide_index=True)
 
     st.subheader("Weekly Summary")
     ot_count = (weekly_df["Overtime Hours"] != "—").sum()
@@ -227,7 +265,7 @@ if st.button("Generate Report", type="primary", use_container_width=True):
     filename  = f"worktime_report_{date.today().strftime('%Y%m%d')}.xlsx"
 
     st.download_button(
-        "⬇  Download Excel Report  (Daily + Weekly)",
+        "⬇  Download Excel Report  (Daily + Late + Weekly + Monthly)",
         data=excel_buf,
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
